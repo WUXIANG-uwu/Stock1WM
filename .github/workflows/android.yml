@@ -26,9 +26,9 @@ jobs:
     - name: Build Release APK
       run: ./gradlew assembleRelease
 
-    # 2. 自动化数字签名（换用维护良好的官方/主流插件）
+    # 2. 调用 GitHub Secrets 里的私钥进行自动化数字签名
     - name: Sign APK
-      uses: rportmg/sign-android-release@v1
+      uses: rstyle/sign-android-release@v1
       id: sign_app
       with:
         releaseDirectory: app/build/outputs/apk/release
