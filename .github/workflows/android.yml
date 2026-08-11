@@ -22,24 +22,46 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    # 1. 编译打出 Release 版 APK
+    # 1. 编译打出未签名的 Release APK
     - name: Build Release APK
       run: ./gradlew assembleRelease
 
-    # 2. 自动化数字签名（换用维护良好的官方/主流插件）
-    - name: Sign APK
-      uses: rportmg/sign-android-release@v1
-      id: sign_app
-      with:
-        releaseDirectory: app/build/outputs/apk/release
-        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-        alias: ${{ secrets.ALIAS }}
-        keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-        keyPassword: ${{ secrets.KEY_PASSWORD }}
+    # 2. 从 GitHub Secrets 还原 .jks 密钥文件并使用官方 apksigner 工具直接签名
+    - name: Sign APK with Native apksigner
+      env:
+        KEYSTORE_BASE64: ${{ secrets.SIGNING_KEY }}
+        KEYSTORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: |
+        # 2.1 将 Base64 解码生成临时的 release.keystore 文件
+        echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+        
+        # 2.2 找到 Android SDK 中的 apksigner 路径
+        BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | tail -n 1)
+        
+        # 2.3 执行官方签名命令
+        $BUILD_TOOLS_DIR/apksigner sign \
+          --ks release.keystore \
+          --ks-pass pass:"$KEYSTORE_PASSWORD" \
+          --ks-key-alias "$KEY_ALIAS" \
+          --key-pass pass:"$KEY_PASSWORD" \
+          --out app/build/outputs/apk/release/app-release-signed.apk \
+          app/build/outputs/apk/release/app-release-unsigned.apk || \
+        $BUILD_TOOLS_DIR/apksigner sign \
+          --ks release.keystore \
+          --ks-pass pass:"$KEYSTORE_PASSWORD" \
+          --ks-key-alias "$KEY_ALIAS" \
+          --key-pass pass:"$KEY_PASSWORD" \
+          --out app/build/outputs/apk/release/app-release-signed.apk \
+          app/build/outputs/apk/release/*.apk
 
-    # 3. 把最终签名好的 Release APK 上传为构建产物
-    - name: Upload Release APK
+        # 2.4 清理密钥文件，保障安全
+        rm release.keystore
+
+    # 3. 将签名好的 APK 文件打包上载
+    - name: Upload Signed Release APK
       uses: actions/upload-artifact@v4
       with:
         name: Stock1WM-Release.apk
-        path: ${{ steps.sign_app.outputs.signedFile }}
+        path: app/build/outputs/apk/release/app-release-signed.apk
