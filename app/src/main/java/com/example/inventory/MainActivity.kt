@@ -1,8 +1,10 @@
 package com.example.inventory
 
+import android.app.Application
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,21 +17,128 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.util.UUID
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.room.*
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
-// 数据模型 (Data Model [数据模型])
+// ==========================================
+// 1. Room 数据库架构 (Database Architecture)
+// ==========================================
+
+@Entity(tableName = "inventory_items")
 data class InventoryItem(
-    val id: String = UUID.randomUUID().toString(),
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
     val category: String,
     val quantity: Int,
     val minThreshold: Int = 5,
     val unitPrice: Double = 0.0
 )
+
+@Dao
+interface InventoryDao {
+    @Query("SELECT * FROM inventory_items ORDER BY id DESC")
+    fun getAllItems(): kotlinx.coroutines.flow.Flow<List<InventoryItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertItem(item: InventoryItem)
+
+    @Update
+    suspend fun updateItem(item: InventoryItem)
+
+    @Delete
+    suspend fun deleteItem(item: InventoryItem)
+
+    @Query("DELETE FROM inventory_items WHERE id IN (:ids)")
+    suspend fun deleteItemsByIds(ids: List<Int>)
+}
+
+@Database(entities = [InventoryItem::class], version = 1, exportSchema = false)
+abstract class AppDatabase : RoomDatabase() {
+    abstract fun inventoryDao(): InventoryDao
+
+    companion object {
+        @Volatile
+        private var INSTANCE: AppDatabase? = null
+
+        fun getDatabase(context: android.content.Context): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "inventory_database"
+                ).build()
+                INSTANCE = instance
+                instance
+            }
+        }
+    }
+}
+
+// ==========================================
+// 2. ViewModel 控制器 (State Management)
+// ==========================================
+
+class InventoryViewModel(application: Application) : AndroidViewModel(application) {
+    private val dao = AppDatabase.getDatabase(application).inventoryDao()
+
+    val itemList: StateFlow<List<InventoryItem>> = dao.getAllItems().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    init {
+        viewModelScope.launch {
+            // 如果数据库为空，预填初始演示数据
+            dao.getAllItems().collect { list ->
+                if (list.isEmpty()) {
+                    dao.insertItem(InventoryItem(name = "可口可乐 (Coca Cola)", category = "饮料", quantity = 18, minThreshold = 10, unitPrice = 2.5))
+                    dao.insertItem(InventoryItem(name = "鲜牛奶 (Fresh Milk)", category = "冷藏", quantity = 3, minThreshold = 5, unitPrice = 6.5))
+                    dao.insertItem(InventoryItem(name = "吐司面包 (Bread)", category = "食品", quantity = 2, minThreshold = 5, unitPrice = 4.0))
+                }
+            }
+        }
+    }
+
+    fun addItem(name: String, category: String, quantity: Int, minThreshold: Int, unitPrice: Double) {
+        viewModelScope.launch {
+            dao.insertItem(InventoryItem(name = name, category = category, quantity = quantity, minThreshold = minThreshold, unitPrice = unitPrice))
+        }
+    }
+
+    fun updateItem(item: InventoryItem) {
+        viewModelScope.launch {
+            dao.updateItem(item)
+        }
+    }
+
+    fun deleteItem(item: InventoryItem) {
+        viewModelScope.launch {
+            dao.deleteItem(item)
+        }
+    }
+
+    fun deleteBatch(ids: List<Int>) {
+        viewModelScope.launch {
+            dao.deleteItemsByIds(ids)
+        }
+    }
+}
+
+// ==========================================
+// 3. Activity 入口 (UI Component)
+// ==========================================
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,16 +166,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainInventoryApp() {
     var selectedTab by remember { mutableStateOf(0) }
-    val itemList = remember { mutableStateListOf<InventoryItem>() }
-
-    // 预置初始示例数据 (Preset Sample Data)
-    LaunchedEffect(Unit) {
-        if (itemList.isEmpty()) {
-            itemList.add(InventoryItem(name = "可口可乐 (Coca Cola)", category = "饮料", quantity = 18, minThreshold = 10, unitPrice = 2.5))
-            itemList.add(InventoryItem(name = "鲜牛奶 (Fresh Milk)", category = "冷藏", quantity = 3, minThreshold = 5, unitPrice = 6.5))
-            itemList.add(InventoryItem(name = "吐司面包 (Bread)", category = "食品", quantity = 2, minThreshold = 5, unitPrice = 4.0))
-        }
-    }
+    val viewModel: InventoryViewModel = viewModel()
+    val itemList by viewModel.itemList.collectAsState()
 
     Scaffold(
         topBar = {
@@ -103,7 +204,7 @@ fun MainInventoryApp() {
     ) { innerPadding ->
         Box(modifier = Modifier.padding(innerPadding)) {
             if (selectedTab == 0) {
-                InventoryCheckTab(itemList = itemList)
+                InventoryCheckTab(itemList = itemList, viewModel = viewModel)
             } else {
                 InventoryReportTab(itemList = itemList)
             }
@@ -113,12 +214,17 @@ fun MainInventoryApp() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
+fun InventoryCheckTab(itemList: List<InventoryItem>, viewModel: InventoryViewModel) {
     var searchQuery by remember { mutableStateOf("") }
     var showAddDialog by remember { mutableStateOf(false) }
     var itemToEdit by remember { mutableStateOf<InventoryItem?>(null) }
+    
+    // 批量删除与防误触删除状态 (Selection & Deletion Protection)
+    var isSelectionMode by remember { mutableStateOf(false) }
+    val selectedItemIds = remember { mutableStateListOf<Int>() }
+    var itemToDeleteSingle by remember { mutableStateOf<InventoryItem?>(null) }
+    var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
-    // 快捷搜索筛选 (Filter Logic)
     val filteredList = itemList.filter { 
         it.name.contains(searchQuery, ignoreCase = true) || 
         it.category.contains(searchQuery, ignoreCase = true)
@@ -129,7 +235,6 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // 搜索框 (Search Bar)
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
@@ -141,6 +246,7 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // 控制栏：新增与批量选择控制
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -151,17 +257,31 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
-            Button(
-                onClick = { showAddDialog = true },
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("新增商品")
+
+            Row {
+                TextButton(
+                    onClick = { 
+                        isSelectionMode = !isSelectionMode
+                        selectedItemIds.clear()
+                    }
+                ) {
+                    Text(if (isSelectionMode) "取消多选" else "批量删除")
+                }
+                
+                if (!isSelectionMode) {
+                    Button(
+                        onClick = { showAddDialog = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("新增商品")
+                    }
+                }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         if (filteredList.isEmpty()) {
             Box(
@@ -180,22 +300,41 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
                 items(filteredList, key = { it.id }) { item ->
                     InventoryItemCard(
                         item = item,
-                        onQuantityChange = { delta ->
-                            val index = itemList.indexOfFirst { it.id == item.id }
-                            if (index != -1) {
-                                val newQty = (itemList[index].quantity + delta).coerceAtLeast(0)
-                                itemList[index] = itemList[index].copy(quantity = newQty)
+                        isSelectionMode = isSelectionMode,
+                        isSelected = selectedItemIds.contains(item.id),
+                        onToggleSelect = {
+                            if (selectedItemIds.contains(item.id)) {
+                                selectedItemIds.remove(item.id)
+                            } else {
+                                selectedItemIds.add(item.id)
                             }
                         },
+                        onQuantityChange = { delta ->
+                            val newQty = (item.quantity + delta).coerceAtLeast(0)
+                            viewModel.updateItem(item.copy(quantity = newQty))
+                        },
                         onEdit = { itemToEdit = item },
-                        onDelete = { itemList.removeIf { it.id == item.id } }
+                        onDeleteSingle = { itemToDeleteSingle = item }
                     )
                 }
             }
         }
+
+        // 批量删除底部执行条
+        if (isSelectionMode) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+                onClick = { if (selectedItemIds.isNotEmpty()) showBatchDeleteConfirm = true },
+                enabled = selectedItemIds.isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("确定删除已选中的 ${selectedItemIds.size} 项商品")
+            }
+        }
     }
 
-    // 新增/编辑模态弹窗 (Form Dialog)
+    // 弹窗 1：新增 / 编辑弹窗
     if (showAddDialog || itemToEdit != null) {
         ItemFormDialog(
             initialItem = itemToEdit,
@@ -205,19 +344,8 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
             },
             onSave = { name, category, qty, threshold, price ->
                 if (itemToEdit != null) {
-                    val index = itemList.indexOfFirst { it.id == itemToEdit!!.id }
-                    if (index != -1) {
-                        itemList[index] = itemList[index].copy(
-                            name = name,
-                            category = category,
-                            quantity = qty,
-                            minThreshold = threshold,
-                            unitPrice = price
-                        )
-                    }
-                } else {
-                    itemList.add(
-                        InventoryItem(
+                    viewModel.updateItem(
+                        itemToEdit!!.copy(
                             name = name,
                             category = category,
                             quantity = qty,
@@ -225,9 +353,63 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
                             unitPrice = price
                         )
                     )
+                } else {
+                    viewModel.addItem(name, category, qty, threshold, price)
                 }
                 showAddDialog = false
                 itemToEdit = null
+            }
+        )
+    }
+
+    // 弹窗 2：单项删除二次确认 (Single Item Delete Protection Dialog)
+    if (itemToDeleteSingle != null) {
+        AlertDialog(
+            onDismissRequest = { itemToDeleteSingle = null },
+            title = { Text("确认删除商品？") },
+            text = { Text("您确定要删除“${itemToDeleteSingle?.name}”吗？此操作无法撤销。") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        itemToDeleteSingle?.let { viewModel.deleteItem(it) }
+                        itemToDeleteSingle = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("确定删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToDeleteSingle = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // 弹窗 3：批量删除二次确认 (Batch Delete Confirmation Dialog)
+    if (showBatchDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBatchDeleteConfirm = false },
+            title = { Text("确认批量删除？") },
+            text = { Text("您确定要彻底删除选中的 ${selectedItemIds.size} 项商品吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteBatch(selectedItemIds.toList())
+                        selectedItemIds.clear()
+                        isSelectionMode = false
+                        showBatchDeleteConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
+                ) {
+                    Text("确认批量删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBatchDeleteConfirm = false }) {
+                    Text("取消")
+                }
             }
         )
     }
@@ -236,96 +418,112 @@ fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
 @Composable
 fun InventoryItemCard(
     item: InventoryItem,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onToggleSelect: () -> Unit,
     onQuantityChange: (Int) -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDeleteSingle: () -> Unit
 ) {
     val isLowStock = item.quantity <= item.minThreshold
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (isSelectionMode) Modifier.clickable { onToggleSelect() } else Modifier),
         colors = CardDefaults.cardColors(
             containerColor = if (isLowStock) Color(0xFFFFF3F3) else MaterialTheme.colorScheme.surfaceVariant
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = item.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (isLowStock) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                color = Color(0xFFD32F2F),
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    text = "库存预警",
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = item.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (isLowStock) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    color = Color(0xFFD32F2F),
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "库存预警",
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
+                        Text(
+                            text = "类别: ${item.category} | 单价: RM ${String.format("%.2f", item.unitPrice)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
                     }
-                    Text(
-                        text = "类别: ${item.category} | 单价: RM ${String.format("%.2f", item.unitPrice)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.Gray
-                    )
+
+                    if (!isSelectionMode) {
+                        Row {
+                            IconButton(onClick = onEdit) {
+                                Icon(Icons.Default.Edit, contentDescription = "修改", tint = MaterialTheme.colorScheme.primary)
+                            }
+                            IconButton(onClick = onDeleteSingle) {
+                                Icon(Icons.Default.Delete, contentDescription = "删除", tint = Color(0xFFD32F2F))
+                            }
+                        }
+                    } else {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { onToggleSelect() }
+                        )
+                    }
                 }
 
-                Row {
-                    IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, contentDescription = "修改", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除", tint = Color(0xFFD32F2F))
-                    }
-                }
-            }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // 快捷调整库存数量
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "当前库存: ${item.quantity} (阀值: ${item.minThreshold})",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isLowStock) Color(0xFFD32F2F) else Color.Unspecified
-                )
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedIconButton(
-                        onClick = { onQuantityChange(-1) },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Text("-", fontWeight = FontWeight.Bold)
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "${item.quantity}",
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        fontWeight = FontWeight.Bold
+                        text = "当前库存: ${item.quantity} (阀值: ${item.minThreshold})",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isLowStock) Color(0xFFD32F2F) else Color.Unspecified
                     )
-                    OutlinedIconButton(
-                        onClick = { onQuantityChange(1) },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Text("+", fontWeight = FontWeight.Bold)
+
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedIconButton(
+                            onClick = { onQuantityChange(-1) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Text("-", fontWeight = FontWeight.Bold)
+                        }
+                        Text(
+                            text = "${item.quantity}",
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            fontWeight = FontWeight.Bold
+                        )
+                        OutlinedIconButton(
+                            onClick = { onQuantityChange(1) },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Text("+", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -353,7 +551,6 @@ fun InventoryReportTab(itemList: List<InventoryItem>) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // 指标报告卡片 (Metric Dashboard)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
