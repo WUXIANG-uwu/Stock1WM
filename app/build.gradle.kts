@@ -16,15 +16,14 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        // 开启 MultiDex 支持，解决 64K 方法数溢出问题
-        multiDexEnabled = true
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 开启代码压缩与混淆，自动清理冗余和重复的 Dex 类
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -44,9 +43,6 @@ android {
 }
 
 dependencies {
-    // MultiDex 依赖
-    implementation("androidx.multidex:multidex:2.0.1")
-
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
