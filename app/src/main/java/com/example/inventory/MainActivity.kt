@@ -6,25 +6,47 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.util.UUID
 
 // 数据模型 (Data Model [数据模型])
-data class InventoryItem(val name: String, val quantity: Int)
+data class InventoryItem(
+    val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val category: String,
+    val quantity: Int,
+    val minThreshold: Int = 5,
+    val unitPrice: Double = 0.0
+)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme {
+            MaterialTheme(
+                colorScheme = lightColorScheme(
+                    primary = Color(0xFF6750A4),
+                    secondary = Color(0xFF625B71),
+                    tertiary = Color(0xFF7D5260)
+                )
+            ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    InventoryScreen()
+                    MainInventoryApp()
                 }
             }
         }
@@ -33,83 +55,384 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InventoryScreen() {
-    // 状态管理 (State Management [状态管理])
-    var nameInput by remember { mutableStateOf("") }
-    var quantityInput by remember { mutableStateOf("") }
+fun MainInventoryApp() {
+    var selectedTab by remember { mutableStateOf(0) }
     val itemList = remember { mutableStateListOf<InventoryItem>() }
+
+    // 预置初始示例数据 (Preset Sample Data)
+    LaunchedEffect(Unit) {
+        if (itemList.isEmpty()) {
+            itemList.add(InventoryItem(name = "可口可乐 (Coca Cola)", category = "饮料", quantity = 18, minThreshold = 10, unitPrice = 2.5))
+            itemList.add(InventoryItem(name = "鲜牛奶 (Fresh Milk)", category = "冷藏", quantity = 3, minThreshold = 5, unitPrice = 6.5))
+            itemList.add(InventoryItem(name = "吐司面包 (Bread)", category = "食品", quantity = 2, minThreshold = 5, unitPrice = 4.0))
+        }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Stock1WM 库存管理系统") },
+                title = { 
+                    Text(
+                        "Stock1WM 盘点与库存管理系统", 
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    ) 
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
+        },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.List, contentDescription = "库存盘点") },
+                    label = { Text("库存盘点") },
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 }
+                )
+                NavigationBarItem(
+                    icon = { Icon(Icons.Default.Info, contentDescription = "数据报告") },
+                    label = { Text("数据报告") },
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 }
+                )
+            }
         }
     ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .padding(innerPadding)
-                .padding(16.dp)
-                .fillMaxSize()
-        ) {
-            // 输入区：商品名称与数量
-            OutlinedTextField(
-                value = nameInput,
-                onValueChange = { nameInput = it },
-                label = { Text("商品名称") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = quantityInput,
-                onValueChange = { quantityInput = it },
-                label = { Text("库存数量") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(12.dp))
+        Box(modifier = Modifier.padding(innerPadding)) {
+            if (selectedTab == 0) {
+                InventoryCheckTab(itemList = itemList)
+            } else {
+                InventoryReportTab(itemList = itemList)
+            }
+        }
+    }
+}
 
-            // 按钮：添加库存
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun InventoryCheckTab(itemList: MutableList<InventoryItem>) {
+    var searchQuery by remember { mutableStateOf("") }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var itemToEdit by remember { mutableStateOf<InventoryItem?>(null) }
+
+    // 快捷搜索筛选 (Filter Logic)
+    val filteredList = itemList.filter { 
+        it.name.contains(searchQuery, ignoreCase = true) || 
+        it.category.contains(searchQuery, ignoreCase = true)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        // 搜索框 (Search Bar)
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("搜索商品名称或类别...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "商品列表 (${filteredList.size})",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
             Button(
-                onClick = {
-                    val qty = quantityInput.toIntOrNull()
-                    if (nameInput.isNotBlank() && qty != null) {
-                        itemList.add(InventoryItem(nameInput, qty))
-                        nameInput = ""
-                        quantityInput = ""
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
+                onClick = { showAddDialog = true },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                Text("新增商品库存")
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("新增商品")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        if (filteredList.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("未检索到符合条件的商品记录", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredList, key = { it.id }) { item ->
+                    InventoryItemCard(
+                        item = item,
+                        onQuantityChange = { delta ->
+                            val index = itemList.indexOfFirst { it.id == item.id }
+                            if (index != -1) {
+                                val newQty = (itemList[index].quantity + delta).coerceAtLeast(0)
+                                itemList[index] = itemList[index].copy(quantity = newQty)
+                            }
+                        },
+                        onEdit = { itemToEdit = item },
+                        onDelete = { itemList.removeIf { it.id == item.id } }
+                    )
+                }
+            }
+        }
+    }
+
+    // 新增/编辑模态弹窗 (Form Dialog)
+    if (showAddDialog || itemToEdit != null) {
+        ItemFormDialog(
+            initialItem = itemToEdit,
+            onDismiss = {
+                showAddDialog = false
+                itemToEdit = null
+            },
+            onSave = { name, category, qty, threshold, price ->
+                if (itemToEdit != null) {
+                    val index = itemList.indexOfFirst { it.id == itemToEdit!!.id }
+                    if (index != -1) {
+                        itemList[index] = itemList[index].copy(
+                            name = name,
+                            category = category,
+                            quantity = qty,
+                            minThreshold = threshold,
+                            unitPrice = price
+                        )
+                    }
+                } else {
+                    itemList.add(
+                        InventoryItem(
+                            name = name,
+                            category = category,
+                            quantity = qty,
+                            minThreshold = threshold,
+                            unitPrice = price
+                        )
+                    )
+                }
+                showAddDialog = false
+                itemToEdit = null
+            }
+        )
+    }
+}
+
+@Composable
+fun InventoryItemCard(
+    item: InventoryItem,
+    onQuantityChange: (Int) -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val isLowStock = item.quantity <= item.minThreshold
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isLowStock) Color(0xFFFFF3F3) else MaterialTheme.colorScheme.surfaceVariant
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (isLowStock) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = Color(0xFFD32F2F),
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "库存预警",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        text = "类别: ${item.category} | 单价: RM ${String.format("%.2f", item.unitPrice)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+
+                Row {
+                    IconButton(onClick = onEdit) {
+                        Icon(Icons.Default.Edit, contentDescription = "修改", tint = MaterialTheme.colorScheme.primary)
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(Icons.Default.Delete, contentDescription = "删除", tint = Color(0xFFD32F2F))
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(text = "当前库存列表：", style = MaterialTheme.typography.titleMedium)
-            Spacer(modifier = Modifier.height(8.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // 列表区：展示添加的商品
-            LazyColumn {
-                items(itemList) { item ->
+            // 快捷调整库存数量
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "当前库存: ${item.quantity} (阀值: ${item.minThreshold})",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isLowStock) Color(0xFFD32F2F) else Color.Unspecified
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedIconButton(
+                        onClick = { onQuantityChange(-1) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text("-", fontWeight = FontWeight.Bold)
+                    }
+                    Text(
+                        text = "${item.quantity}",
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        fontWeight = FontWeight.Bold
+                    )
+                    OutlinedIconButton(
+                        onClick = { onQuantityChange(1) },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text("+", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun InventoryReportTab(itemList: List<InventoryItem>) {
+    val totalTypes = itemList.size
+    val totalQuantity = itemList.sumOf { it.quantity }
+    val totalValue = itemList.sumOf { it.quantity * it.unitPrice }
+    val lowStockItems = itemList.filter { it.quantity <= it.minThreshold }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "📊 库存数据与分析报告",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // 指标报告卡片 (Metric Dashboard)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ReportCard(
+                title = "商品种类",
+                value = "$totalTypes 种",
+                modifier = Modifier.weight(1f),
+                bgColor = Color(0xFFE8F0FE)
+            )
+            ReportCard(
+                title = "总库存量",
+                value = "$totalQuantity 件",
+                modifier = Modifier.weight(1f),
+                bgColor = Color(0xFFE6F4EA)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ReportCard(
+                title = "低库存需补货",
+                value = "${lowStockItems.size} 项",
+                modifier = Modifier.weight(1f),
+                bgColor = if (lowStockItems.isNotEmpty()) Color(0xFFFCE8E6) else Color(0xFFF1F3F4)
+            )
+            ReportCard(
+                title = "预估总价值",
+                value = "RM ${String.format("%.2f", totalValue)}",
+                modifier = Modifier.weight(1f),
+                bgColor = Color(0xFFFEF7E0)
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = "⚠️ 需优先补货明细清单",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFFD32F2F)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        if (lowStockItems.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFE6F4EA))
+            ) {
+                Text(
+                    text = "✅ 目前所有商品库存充裕，无需补货！",
+                    modifier = Modifier.padding(16.dp),
+                    color = Color(0xFF137333)
+                )
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(lowStockItems) { item ->
                     Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3F3))
                     ) {
                         Row(
                             modifier = Modifier
-                                .padding(16.dp)
+                                .padding(12.dp)
                                 .fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = item.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(text = item.name, fontWeight = FontWeight.Bold)
                             Text(
-                                text = "数量: ${item.quantity}",
-                                style = MaterialTheme.typography.bodyMedium
+                                text = "剩余: ${item.quantity} (警告阀值: ${item.minThreshold})",
+                                color = Color(0xFFD32F2F),
+                                fontSize = 13.sp
                             )
                         }
                     }
@@ -117,4 +440,95 @@ fun InventoryScreen() {
             }
         }
     }
+}
+
+@Composable
+fun ReportCard(title: String, value: String, modifier: Modifier = Modifier, bgColor: Color) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = bgColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Text(text = title, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun ItemFormDialog(
+    initialItem: InventoryItem?,
+    onDismiss: () -> Unit,
+    onSave: (name: String, category: String, qty: Int, threshold: Int, price: Double) -> Unit
+) {
+    var name by remember { mutableStateOf(initialItem?.name ?: "") }
+    var category by remember { mutableStateOf(initialItem?.category ?: "通用") }
+    var qtyText by remember { mutableStateOf(initialItem?.quantity?.toString() ?: "1") }
+    var thresholdText by remember { mutableStateOf(initialItem?.minThreshold?.toString() ?: "5") }
+    var priceText by remember { mutableStateOf(initialItem?.unitPrice?.toString() ?: "0.0") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initialItem == null) "新增商品" else "修改商品信息") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("商品名称") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = category,
+                    onValueChange = { category = it },
+                    label = { Text("商品类别") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = qtyText,
+                    onValueChange = { qtyText = it },
+                    label = { Text("当前数量") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = thresholdText,
+                    onValueChange = { thresholdText = it },
+                    label = { Text("预警触发阀值") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = priceText,
+                    onValueChange = { priceText = it },
+                    label = { Text("单价 (RM)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val q = qtyText.toIntOrNull() ?: 0
+                    val t = thresholdText.toIntOrNull() ?: 5
+                    val p = priceText.toDoubleOrNull() ?: 0.0
+                    if (name.isNotBlank()) {
+                        onSave(name, category, q, t, p)
+                    }
+                }
+            ) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
