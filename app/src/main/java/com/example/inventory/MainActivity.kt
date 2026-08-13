@@ -33,7 +33,10 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
                     MainApp(db.inventoryDao())
                 }
             }
@@ -41,7 +44,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainApp(dao: InventoryDao) {
     var selectedItem by remember { mutableStateOf<Item?>(null) }
@@ -71,7 +73,7 @@ fun MainApp(dao: InventoryDao) {
     }
 }
 
-// ---------------- 1. 首页：货品列表 ----------------
+// ---------------- 1. 原汁原味的主界面 ----------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(dao: InventoryDao, onItemClick: (Item) -> Unit, onOpenCustomers: () -> Unit) {
@@ -81,7 +83,7 @@ fun HomeScreen(dao: InventoryDao, onItemClick: (Item) -> Unit, onOpenCustomers: 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Stock1WM 库存管理") },
+                title = { Text("Stock1WM", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = onOpenCustomers) {
                         Icon(Icons.Default.Person, contentDescription = "客户名单")
@@ -98,7 +100,7 @@ fun HomeScreen(dao: InventoryDao, onItemClick: (Item) -> Unit, onOpenCustomers: 
         Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
             if (itemList.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无货品，请点击右下角 + 添加")
+                    Text("暂无货品，请点击右下角 + 添加", color = Color.Gray)
                 }
             } else {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -117,7 +119,7 @@ fun HomeScreen(dao: InventoryDao, onItemClick: (Item) -> Unit, onOpenCustomers: 
                             ) {
                                 Column {
                                     Text(item.name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                                    Text("价格: $${item.price}", color = Color.Gray)
+                                    Text("价格: $${item.price}", fontSize = 14.sp, color = Color.Gray)
                                 }
                                 Text("库存: ${item.quantity}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             }
@@ -133,7 +135,7 @@ fun HomeScreen(dao: InventoryDao, onItemClick: (Item) -> Unit, onOpenCustomers: 
     }
 }
 
-// ---------------- 2. 客户管理界面 ----------------
+// ---------------- 2. 客户名单界面（右上角图标点击进入） ----------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomerManagerScreen(dao: InventoryDao, onBack: () -> Unit) {
@@ -157,7 +159,7 @@ fun CustomerManagerScreen(dao: InventoryDao, onBack: () -> Unit) {
         Column(modifier = Modifier.padding(innerPadding).padding(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("新增客户", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("输入新客户", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = nameInput,
@@ -169,7 +171,7 @@ fun CustomerManagerScreen(dao: InventoryDao, onBack: () -> Unit) {
                     OutlinedTextField(
                         value = phoneInput,
                         onValueChange = { phoneInput = it },
-                        label = { Text("联系电话/备注") },
+                        label = { Text("联系电话 / 备注") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
@@ -190,7 +192,7 @@ fun CustomerManagerScreen(dao: InventoryDao, onBack: () -> Unit) {
                 }
             }
 
-            Text("客户整齐列表", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("已保存客户列表", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
             LazyColumn {
                 items(customerList) { customer ->
@@ -206,7 +208,7 @@ fun CustomerManagerScreen(dao: InventoryDao, onBack: () -> Unit) {
     }
 }
 
-// ---------------- 3. 货品详情与出入库日志界面 ----------------
+// ---------------- 3. 点击货品卡片查看的出入库明细 ----------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ItemDetailScreen(item: Item, dao: InventoryDao, onBack: () -> Unit) {
@@ -218,7 +220,7 @@ fun ItemDetailScreen(item: Item, dao: InventoryDao, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("${item.name} - 明细") },
+                title = { Text("${item.name} 明细") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -230,7 +232,7 @@ fun ItemDetailScreen(item: Item, dao: InventoryDao, onBack: () -> Unit) {
         Column(modifier = Modifier.padding(innerPadding).padding(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("当前总库存: ${item.quantity}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text("当前库存: ${item.quantity}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Button(onClick = { isStockIn = true; showLogDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))) {
@@ -243,7 +245,7 @@ fun ItemDetailScreen(item: Item, dao: InventoryDao, onBack: () -> Unit) {
                 }
             }
 
-            Text("出入库历史记录", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("出入库记录明细", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(modifier = Modifier.height(8.dp))
 
             LazyColumn {
@@ -277,7 +279,7 @@ fun ItemDetailScreen(item: Item, dao: InventoryDao, onBack: () -> Unit) {
     }
 }
 
-// ---------------- 4. 弹出对话框：添加货品 ----------------
+// ---------------- 4. 对话框：添加货品 ----------------
 @Composable
 fun AddItemDialog(dao: InventoryDao, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf("") }
@@ -290,8 +292,8 @@ fun AddItemDialog(dao: InventoryDao, onDismiss: () -> Unit) {
         title = { Text("添加新货品") },
         text = {
             Column {
-                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("名称") })
-                OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("单价") })
+                OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("货品名称") })
+                OutlinedTextField(value = price, onValueChange = { price = it }, label = { Text("价格") })
                 OutlinedTextField(value = qty, onValueChange = { qty = it }, label = { Text("初始库存") })
             }
         },
@@ -303,7 +305,6 @@ fun AddItemDialog(dao: InventoryDao, onDismiss: () -> Unit) {
                         val newItem = Item(name = name, price = price.toDoubleOrNull() ?: 0.0, quantity = newQuantity)
                         dao.insertItem(newItem)
 
-                        // 自动添加一条初始入库日志
                         val currentDate = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
                         dao.insertLog(StockLog(itemId = newItem.id, type = "IN", quantity = newQuantity, date = currentDate))
                         onDismiss()
@@ -315,7 +316,7 @@ fun AddItemDialog(dao: InventoryDao, onDismiss: () -> Unit) {
     )
 }
 
-// ---------------- 5. 弹出对话框：出/入库操作 ----------------
+// ---------------- 5. 对话框：出库/入库 ----------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StockActionDialog(
@@ -338,7 +339,7 @@ fun StockActionDialog(
                 OutlinedTextField(
                     value = qtyInput,
                     onValueChange = { qtyInput = it },
-                    label = { Text("数量") },
+                    label = { Text("变动数量") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (!isStockIn) {
@@ -351,7 +352,7 @@ fun StockActionDialog(
                             value = if (selectedCustomer.isEmpty()) "点击选择客户" else selectedCustomer,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("选择出货客户") },
+                            label = { Text("出货给谁 (客户)") },
                             modifier = Modifier.menuAnchor().fillMaxWidth()
                         )
                         ExposedDropdownMenu(
@@ -359,7 +360,7 @@ fun StockActionDialog(
                             onDismissRequest = { expanded = false }
                         ) {
                             if (customers.isEmpty()) {
-                                DropdownMenuItem(text = { Text("暂无客户（请先在主页添加）") }, onClick = { expanded = false })
+                                DropdownMenuItem(text = { Text("暂无客户，请先在主页右上角添加") }, onClick = { expanded = false })
                             } else {
                                 customers.forEach { customer ->
                                     DropdownMenuItem(
@@ -398,7 +399,7 @@ fun StockActionDialog(
                         onDismiss()
                     }
                 }
-            }) { Text("确认提交") }
+            }) { Text("确认") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )
