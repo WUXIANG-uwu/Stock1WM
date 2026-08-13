@@ -8,8 +8,10 @@ import kotlinx.coroutines.flow.Flow
 data class Item(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
-    val price: Double,
-    val quantity: Int
+    val category: String = "通用",
+    val price: Double = 0.0,
+    val quantity: Int = 0,
+    val threshold: Int = 20
 )
 
 @Entity(tableName = "customers")
@@ -23,7 +25,7 @@ data class Customer(
 data class StockLog(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val itemId: Int,
-    val type: String, 
+    val type: String, // "IN" 或 "OUT"
     val quantity: Int,
     val date: String,
     val customerName: String = ""
@@ -59,7 +61,7 @@ interface InventoryDao {
     suspend fun insertLog(log: StockLog)
 }
 
-@Database(entities = [Item::class, Customer::class, StockLog::class], version = 2, exportSchema = false)
+@Database(entities = [Item::class, Customer::class, StockLog::class], version = 3, exportSchema = false)
 abstract class InventoryDatabase : RoomDatabase() {
     abstract fun inventoryDao(): InventoryDao
 
@@ -74,7 +76,6 @@ abstract class InventoryDatabase : RoomDatabase() {
                     InventoryDatabase::class.java,
                     "inventory_database"
                 )
-                // 数据库结构变更时自动清除旧表重新建表，防止版本冲突闪退
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
